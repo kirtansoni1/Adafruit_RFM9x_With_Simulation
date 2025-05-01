@@ -1,3 +1,27 @@
+'''
+LoRa RFM9x Simulator Server
+===========================
+
+This script implements a TCP-based simulation server for Adafruit's RFM9x LoRa radio module,
+allowing multiple simulated nodes (e.g., running in separate terminal sessions) to send and receive
+messages without requiring physical hardware.
+
+Each simulated node connects over TCP and behaves like a real RFM9x module, using JSON messages
+to transmit packets (data). The server acts as a central router (Virtual AIR gap between RFM9x Nodes)
+and simulates realistic wireless behavior.
+
+Usage:
+------
+1. Run this server:
+   $ python simulated_server.py
+
+2. Start multiple simulated nodes from separate terminals:
+   $ python simpletest.py --simulate --id=1
+   $ python simpletest.py --simulate --id=2
+
+3. Messages sent from one node will be routed by this server to others.
+'''
+
 import socket
 import threading
 import json

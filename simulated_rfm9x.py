@@ -1,3 +1,23 @@
+'''
+Simulated RFM9x LoRa Client
+===========================
+
+This module provides a software simulation of the Adafruit RFM9x LoRa radio module,
+allowing users to run CircuitPython-style radio communication code without needing
+physical LoRa hardware.
+
+Each simulated node connects to a central simulation server via TCP and mimics the
+`adafruit_rfm9x.RFM9x` API, supporting basic send/receive operations along with
+reliable datagram behavior (ACK/Retry).
+
+Usage Example:
+--------------
+This client is typically used in conjunction with `./simulated_server.py`.
+
+Run in simulation mode:
+    python ./example/simpletest.py --simulate --id=1
+'''
+
 import socket
 import json
 import time
@@ -5,16 +25,6 @@ import random
 
 
 class SimulatedRFM9x:
-    """
-    A simulated version of the Adafruit RFM9x LoRa radio module using TCP sockets.
-    This class mirrors the RFM9x API to allow drop-in replacement during simulation.
-
-    Communicates with a central simulation server that routes messages and simulates:
-    - Delay
-    - Packet loss
-    - RSSI & SNR
-    - ACK responses
-    """
 
     def __init__(self, node_id=1, server_ip='localhost', server_port=5000):
         """
