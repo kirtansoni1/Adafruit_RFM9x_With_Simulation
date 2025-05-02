@@ -29,7 +29,19 @@ import random
 import time
 import signal
 import sys
+import logging
 
+# Set up logging to file and console
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler("simulator.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger("SimulatorServer")
 
 class SimulatorServer:
     def __init__(self, host='0.0.0.0', port=5000, max_clients=5,
@@ -65,7 +77,7 @@ class SimulatorServer:
         return random.random() < self.loss_rate
 
     def start(self):
-        print(f"[~] Starting simulator server on {self.host}:{self.port} ...")
+        logger.info(f"[~] Starting simulator server on {self.host}:{self.port} ...")
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(self.max_clients)
 
@@ -90,7 +102,7 @@ class SimulatorServer:
         Handle one client's registration and TX messages.
         """
         conn_file = conn.makefile('r')
-        print(f"[+] Connected from {addr}")
+        logger.info(f"[+] Connected from {addr}")
         node_id = None
         conn.settimeout(None)  # optional, readline is blocking but safe here
 
@@ -105,13 +117,13 @@ class SimulatorServer:
                     node_id = msg["node_id"]
                     with self.lock:
                         self.clients[node_id] = conn
-                    print(f"[+] Node {node_id} registered")
+                    logger.info(f"[+] RFM9x Node {node_id} registered")
 
                 elif msg["type"] == "tx":
                     self.simulate_delay()
 
                     if self.should_drop():
-                        print(f"[x] Dropped packet from node {msg['from']}")
+                        logger.warning(f"[x] Dropped packet from node {msg['from']}")
                         continue
 
                     meta = msg.get("meta", {})
@@ -134,11 +146,11 @@ class SimulatorServer:
                         if target_sock:
                             try:
                                 target_sock.sendall((json.dumps(msg) + '\n').encode())
-                                print(f"[>] Node {msg['from']} → Node {dest}")
+                                logger.info(f"[>] Node {msg['from']} → Node {dest}")
                             except Exception as e:
-                                print(f"[!] Failed to send to node {dest}: {e}")
+                                logger.error(f"[!] Failed to send to node {dest}: {e}")
                         else:
-                            print(f"[!] Destination node {dest} not found")
+                            logger.warning(f"[!] Destination node {dest} not found")
 
         finally:
             if node_id:
@@ -149,7 +161,7 @@ class SimulatorServer:
             except:
                 pass
             conn.close()
-            print(f"[-] Node {node_id} disconnected")
+            logger.info(f"[-] Node {node_id} disconnected")
 
     def shutdown(self):
         """
@@ -159,7 +171,7 @@ class SimulatorServer:
             return
         self.shutting_down = True
 
-        print("\n[!] Shutting down server...")
+        logger.info("\n[!] Shutting down server...")
         self.stop_event.set()
 
         # Close all client sockets
@@ -177,7 +189,7 @@ class SimulatorServer:
         except:
             pass
 
-        print("[✓] Server shutdown complete.")
+        logger.info("[✓] Server shutdown complete.")
         sys.exit(0)
 
 
