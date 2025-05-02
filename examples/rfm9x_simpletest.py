@@ -9,35 +9,62 @@ import digitalio
 
 import adafruit_rfm9x
 
+# ------------------------------
+# Simulation Setup Additions
+# ------------------------------
+import argparse
+import sys
+
+try:
+    from simulated_rfm9x import SimulatedRFM9x
+except ImportError:
+    SimulatedRFM9x = None
+
+parser = argparse.ArgumentParser(description="RFM9x Simple Test")
+parser.add_argument("--simulate", action="store_true", help="Enable simulation mode")
+parser.add_argument("--id", type=int, default=1, help="Simulated node ID, default='1'")
+parser.add_argument("--server", default="localhost", help="Simulation server address, default='localhost'")
+parser.add_argument("--port", type=int, default=5000, help="Simulation server port, default='5000'")
+args = parser.parse_args()
+# ------------------------------
+# ------------------------------
 
 # Define radio parameters.
 RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
 # module! Can be a value like 915.0, 433.0, etc.
 
-# Define pins connected to the chip, use these if wiring up the breakout according to the guide:
-CS = digitalio.DigitalInOut(board.D5)
-RESET = digitalio.DigitalInOut(board.D6)
-# Or uncomment and instead use these if using a Feather M0 RFM9x board and the appropriate
-# CircuitPython build:
-# CS = digitalio.DigitalInOut(board.RFM9X_CS)
-# RESET = digitalio.DigitalInOut(board.RFM9X_RST)
+if args.simulate:
+    if SimulatedRFM9x is None:
+        print("Simulation module not found.")
+        sys.exit(1)
+    print(f"[SIMULATION] Node {args.id} connecting to {args.server}:{args.port}")
+    rfm9x = SimulatedRFM9x(node_id=args.id, server_ip=args.server, server_port=args.port)
+    LED = None  # No LED in simulation mode
+else:
+    # Define pins connected to the chip, use these if wiring up the breakout according to the guide:
+    CS = digitalio.DigitalInOut(board.D5)
+    RESET = digitalio.DigitalInOut(board.D6)
+    # Or uncomment and instead use these if using a Feather M0 RFM9x board and the appropriate
+    # CircuitPython build:
+    # CS = digitalio.DigitalInOut(board.RFM9X_CS)
+    # RESET = digitalio.DigitalInOut(board.RFM9X_RST)
 
-# Define the onboard LED
-LED = digitalio.DigitalInOut(board.D13)
-LED.direction = digitalio.Direction.OUTPUT
+    # Define the onboard LED
+    LED = digitalio.DigitalInOut(board.D13)
+    LED.direction = digitalio.Direction.OUTPUT
 
-# Initialize SPI bus.
-spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
+    # Initialize SPI bus.
+    spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
-# Initialze RFM radio
-rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
+    # Initialze RFM radio
+    rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
 
-# Note that the radio is configured in LoRa mode so you can't control sync
-# word, encryption, frequency deviation, or other settings!
+    # Note that the radio is configured in LoRa mode so you can't control sync
+    # word, encryption, frequency deviation, or other settings!
 
-# You can however adjust the transmit power (in dB).  The default is 13 dB but
-# high power radios like the RFM95 can go up to 23 dB:
-rfm9x.tx_power = 23
+    # You can however adjust the transmit power (in dB).  The default is 13 dB but
+    # high power radios like the RFM95 can go up to 23 dB:
+    rfm9x.tx_power = 23
 
 # Send a packet.  Note you can only send a packet up to 252 bytes in length.
 # This is a limitation of the radio packet size, so if you need to send larger
@@ -59,20 +86,26 @@ while True:
     # If no packet was received during the timeout then None is returned.
     if packet is None:
         # Packet has not been received
-        LED.value = False
+        if LED:
+            LED.value = False
         print("Received nothing! Listening again...")
     else:
         # Received a packet!
-        LED.value = True
+        if LED:
+            LED.value = True
         # Print out the raw bytes of the packet:
         print("Received (raw bytes): {0}".format(packet))
         # And decode to ASCII text and print it too.  Note that you always
         # receive raw bytes and need to convert to a text format like ASCII
         # if you intend to do string processing on your data.  Make sure the
         # sending side is sending ASCII data before you try to decode!
-        packet_text = str(packet, "ascii")
-        print("Received (ASCII): {0}".format(packet_text))
+        try:
+            packet_text = str(packet, "ascii")
+            print("Received (ASCII): {0}".format(packet_text))
+        except Exception:
+            print("Received undecodable bytes.")
         # Also read the RSSI (signal strength) of the last received message and
         # print it.
-        rssi = rfm9x.last_rssi
-        print("Received signal strength: {0} dB".format(rssi))
+        rssi = getattr(rfm9x, 'last_rssi', None)
+        if rssi is not None:
+            print("Received signal strength: {0} dB".format(rssi))
