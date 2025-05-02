@@ -71,7 +71,7 @@ class SimulatorServer:
         return random.randint(*self.rssi_range)
 
     def simulate_delay(self):
-        time.sleep(random.uniform(self.min_delay, self.max_delay))
+        return random.uniform(self.min_delay, self.max_delay)
 
     def should_drop(self):
         return random.random() < self.loss_rate
@@ -104,7 +104,7 @@ class SimulatorServer:
         conn_file = conn.makefile('r')
         logger.info(f"[+] Connected from {addr}")
         node_id = None
-        conn.settimeout(None)  # optional, readline is blocking but safe here
+        conn.settimeout(None)
 
         try:
             for line in conn_file:
@@ -120,22 +120,25 @@ class SimulatorServer:
                     logger.info(f"[+] RFM9x Node {node_id} registered")
 
                 elif msg["type"] == "tx":
-                    self.simulate_delay()
+                    delay = self.simulate_delay()
+                    time.sleep(delay)
+                    delay_ms = round(delay * 1000, 2)
 
                     if self.should_drop():
-                        logger.warning(f"[x] Dropped packet from node {msg['from']}")
-                        continue
-
-                    meta = msg.get("meta", {})
-                    dest = meta.get("destination", 0xFF)
+                        logger.warning(f"[x] Packet from Node {msg['from']} dropped (simulated loss)")
+                        return
 
                     msg["rssi"] = self.generate_rssi()
                     msg["snr"] = round(random.uniform(4.0, 12.0), 1)
-
                     msg_str = msg.get("data", "<no data>")
+                    meta = msg.get("meta", {})
+                    dest = meta.get("destination", 0xFF)
+                    identifier = meta.get("identifier", "?")
+                    flags = meta.get("flags", 0)
+
                     if dest == 0xFF:
-                        # Broadcast
-                        logger.info(f"[→] Node {msg['from']} broadcasting: \"{msg_str}\"")
+                        logger.info(f"[→] Node {msg['from']} broadcasting: \"{msg_str}\" "
+                                    f"(id={identifier}, flags={flags}, delay={delay_ms}ms, RSSI={msg['rssi']}, SNR={msg['snr']})")
                         with self.lock:
                             for nid, client_sock in self.clients.items():
                                 if nid != msg["from"]:
@@ -145,7 +148,8 @@ class SimulatorServer:
                                     except Exception as e:
                                         logger.warning(f"[x] Failed to deliver to Node {nid}: {e}")
                     else:
-                        logger.info(f"[→] Node {msg['from']} sending to Node {dest}: \"{msg_str}\"")
+                        logger.info(f"[→] Node {msg['from']} → Node {dest}: \"{msg_str}\" "
+                                    f"(id={identifier}, flags={flags}, delay={delay_ms}ms, RSSI={msg['rssi']}, SNR={msg['snr']})")
                         with self.lock:
                             target_sock = self.clients.get(dest)
                         if target_sock:
@@ -179,7 +183,6 @@ class SimulatorServer:
         logger.info("\n[!] Shutting down server...")
         self.stop_event.set()
 
-        # Close all client sockets
         with self.lock:
             for sock in self.clients.values():
                 try:
