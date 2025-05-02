@@ -132,23 +132,28 @@ class SimulatorServer:
                     msg["rssi"] = self.generate_rssi()
                     msg["snr"] = round(random.uniform(4.0, 12.0), 1)
 
+                    msg_str = msg.get("data", "<no data>")
                     if dest == 0xFF:
+                        # Broadcast
+                        logger.info(f"[→] Node {msg['from']} broadcasting: \"{msg_str}\"")
                         with self.lock:
                             for nid, client_sock in self.clients.items():
                                 if nid != msg["from"]:
                                     try:
                                         client_sock.sendall((json.dumps(msg) + '\n').encode())
-                                    except:
-                                        pass
+                                        logger.info(f"[✓] Delivered broadcast from Node {msg['from']} to Node {nid}")
+                                    except Exception as e:
+                                        logger.warning(f"[x] Failed to deliver to Node {nid}: {e}")
                     else:
+                        logger.info(f"[→] Node {msg['from']} sending to Node {dest}: \"{msg_str}\"")
                         with self.lock:
                             target_sock = self.clients.get(dest)
                         if target_sock:
                             try:
                                 target_sock.sendall((json.dumps(msg) + '\n').encode())
-                                logger.info(f"[>] Node {msg['from']} → Node {dest}")
+                                logger.info(f"[✓] Delivered message from Node {msg['from']} to Node {dest}")
                             except Exception as e:
-                                logger.error(f"[!] Failed to send to node {dest}: {e}")
+                                logger.error(f"[x] Failed to send to Node {dest}: {e}")
                         else:
                             logger.warning(f"[!] Destination node {dest} not found")
 
