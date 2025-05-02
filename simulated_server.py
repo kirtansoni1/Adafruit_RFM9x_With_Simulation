@@ -89,24 +89,15 @@ class SimulatorServer:
         """
         Handle one client's registration and TX messages.
         """
+        conn_file = conn.makefile('r')
         print(f"[+] Connected from {addr}")
         node_id = None
-        conn.settimeout(0.5)
+        conn.settimeout(None)  # optional, readline is blocking but safe here
 
         try:
-            while not self.stop_event.is_set():
+            for line in conn_file:
                 try:
-                    raw = conn.recv(4096)
-                except socket.timeout:
-                    continue
-                except (ConnectionResetError, OSError):
-                    break
-
-                if not raw:
-                    break
-
-                try:
-                    msg = json.loads(raw.decode())
+                    msg = json.loads(line)
                 except json.JSONDecodeError:
                     continue
 
@@ -130,12 +121,11 @@ class SimulatorServer:
                     msg["snr"] = round(random.uniform(4.0, 12.0), 1)
 
                     if dest == 0xFF:
-                        # Broadcast to all nodes except sender
                         with self.lock:
                             for nid, client_sock in self.clients.items():
                                 if nid != msg["from"]:
                                     try:
-                                        client_sock.sendall(json.dumps(msg).encode())
+                                        client_sock.sendall((json.dumps(msg) + '\n').encode())
                                     except:
                                         pass
                     else:
@@ -143,7 +133,7 @@ class SimulatorServer:
                             target_sock = self.clients.get(dest)
                         if target_sock:
                             try:
-                                target_sock.sendall(json.dumps(msg).encode())
+                                target_sock.sendall((json.dumps(msg) + '\n').encode())
                                 print(f"[>] Node {msg['from']} → Node {dest}")
                             except Exception as e:
                                 print(f"[!] Failed to send to node {dest}: {e}")

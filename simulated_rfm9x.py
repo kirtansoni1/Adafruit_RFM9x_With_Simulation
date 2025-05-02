@@ -71,7 +71,7 @@ class SimulatedRFM9x:
             "type": "register",
             "node_id": self.node_id
         }
-        self.sock.sendall(json.dumps(msg).encode())
+        self.sock.sendall((json.dumps(msg) + '\n').encode())
 
     def send(self, data: bytes, *, keep_listening=False, destination=None,
              node=None, identifier=None, flags=None):
@@ -108,7 +108,7 @@ class SimulatedRFM9x:
             }
         }
 
-        self.sock.sendall(json.dumps(msg).encode())
+        self.sock.sendall((json.dumps(msg) + '\n').encode())
         self._keep_listening = keep_listening  # mock internal receive state
 
     def receive(self, *, keep_listening=True, with_header=False, with_ack=False, timeout=None):
@@ -192,7 +192,7 @@ class SimulatedRFM9x:
         if self.ack_delay:
             time.sleep(self.ack_delay)
 
-        self.sock.sendall(json.dumps(ack_msg).encode())
+        self.sock.sendall((json.dumps(ack_msg) + '\n').encode())
 
     def send_with_ack(self, data: bytes) -> bool:
         """
