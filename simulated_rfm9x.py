@@ -26,7 +26,7 @@ import random
 
 class SimulatedRFM9x:
 
-    def __init__(self, node_id=1, server_ip='localhost', server_port=5000):
+    def __init__(self, node_id=1, server_ip='localhost', server_port=5000, location=(0, 0)):
         """
         Initialize the simulated RFM9x module.
 
@@ -34,8 +34,10 @@ class SimulatedRFM9x:
         - node_id (int): Unique identifier for this simulated node.
         - server_ip (str): IP address of the simulation server.
         - server_port (int): Port of the simulation server.
+        - location (tuple): (x, y) location in km
         """
         self.node_id = node_id
+        self.location = location
         self.server = (server_ip, server_port)
 
         # Create and connect TCP socket to simulation server
@@ -69,7 +71,8 @@ class SimulatedRFM9x:
         """Send a registration message to the server to announce this node."""
         msg = {
             "type": "register",
-            "node_id": self.node_id
+            "node_id": self.node_id,
+            "location": self.location
         }
         self.sock.sendall((json.dumps(msg) + '\n').encode())
 
@@ -146,8 +149,7 @@ class SimulatedRFM9x:
                     original_flags=header["flags"]
                 )
 
-            # Re-enable listening if needed
-            self._keep_listening = keep_listening # mock internal receive state
+            self._keep_listening = keep_listening  # mock internal receive state
 
             # Return payload with or without header
             if with_header:
@@ -178,12 +180,12 @@ class SimulatedRFM9x:
         ack_msg = {
             "type": "tx",
             "from": self.node_id,
-            "data": "!",  # ACK payload
+            "data": "!",
             "meta": {
                 "destination": to_node,
                 "node": self.node_id,
                 "identifier": identifier,
-                "flags": original_flags | 0x80,  # Set ACK bit
+                "flags": original_flags | 0x80,
                 "tx_power": self.tx_power,
                 "timestamp": time.time()
             }
@@ -211,14 +213,13 @@ class SimulatedRFM9x:
         while retries > 0:
             self.send(data, keep_listening=True, identifier=self.identifier, flags=self.flags)
 
-            # Don't wait for ACK if it's a broadcast
             if self.destination == 0xFF:
                 return True
 
             ack = self.receive(timeout=self.ack_wait, with_header=True)
 
             if ack and ack[3] & 0x80 and ack[2] == self.identifier:
-                return True  # ACK received
+                return True
 
             retries -= 1
             time.sleep(self.ack_wait + random.uniform(0, 0.1))

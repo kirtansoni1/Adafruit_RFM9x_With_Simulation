@@ -25,7 +25,10 @@ parser.add_argument("--simulate", action="store_true", help="Enable simulation m
 parser.add_argument("--id", type=int, default=1, help="Simulated node ID, default='1'")
 parser.add_argument("--server", default="localhost", help="Simulation server address, default='localhost'")
 parser.add_argument("--port", type=int, default=5000, help="Simulation server port, default='5000'")
+parser.add_argument("--location", default="0,0", help="Node location as 'x,y'")
+
 args = parser.parse_args()
+x, y = map(float, args.location.split(","))
 # ------------------------------
 # ------------------------------
 
@@ -38,7 +41,7 @@ if args.simulate:
         print("Simulation module not found.")
         sys.exit(1)
     print(f"[SIMULATION] Node {args.id} connecting to {args.server}:{args.port}")
-    rfm9x = SimulatedRFM9x(node_id=args.id, server_ip=args.server, server_port=args.port)
+    rfm9x = SimulatedRFM9x(node_id=args.id, server_ip=args.server, server_port=args.port, location=(x, y))
     LED = None  # No LED in simulation mode
 else:
     # Define pins connected to the chip, use these if wiring up the breakout according to the guide:
