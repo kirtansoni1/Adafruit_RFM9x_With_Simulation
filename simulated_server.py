@@ -37,57 +37,49 @@ from collections import defaultdict, deque
 DEFAULT_AQI = 50
 DEFAULT_WEATHER = 'clear'
 DEFAULT_OBSTACLE = 'open'
+DEFAULT_SPREAD_FACTOR = 7
 TX_POWER_DBM = 23
-NOISE_FLOOR_DBM = -120
-SPREADING_FACTOR = 7
+MAX_RANGE_KM = 25.0
 
-RAIN_DELAY_FACTORS = {
-    'light-rain': 10,
-    'moderate-rain': 15,
-    'heavy-rain': 20,
-    'fog': 5,
-    'clear': 0
+SF_SNR_RANGES = {
+    7: (-7.5, 12.5),
+    8: (-10, 10),
+    9: (-13, 7.5),
+    10: (-15, 5),
+    11: (-17.5, 2.5),
+    12: (-20, 0),
+}
+
+WEATHER_ATTEN_DB_PER_KM = {
+    'clear': 0.0,
+    'fog': 0.02,
+    'light-rain': 0.05,
+    'moderate-rain': 0.1,
+    'heavy-rain': 0.2
 }
 
 OBSTACLE_LOSS_DB = {
-    "glass_6mm": 0.8,
-    "glass_13mm": 2,
-    "wood_76mm": 2.8,
-    "brick_89mm": 3.5,
-    "brick_102mm": 5,
-    "brick_178mm": 7,
-    "brick_267mm": 12,
-    "stone_wall_203mm": 12,
-    "brick_concrete_192mm": 14,
-    "stone_wall_406mm": 17,
-    "concrete_203mm": 23,
-    "reinforced_concrete_89mm": 27,
-    "stone_wall_610mm": 28,
-    "concrete_305mm": 35,
-    "open": 0
+    "glass_6mm": 0.8, "glass_13mm": 2, "wood_76mm": 2.8,
+    "brick_89mm": 3.5, "brick_102mm": 5, "brick_178mm": 7,
+    "brick_267mm": 12, "stone_wall_203mm": 12, "brick_concrete_192mm": 14,
+    "stone_wall_406mm": 17, "concrete_203mm": 23, "reinforced_concrete_89mm": 27,
+    "stone_wall_610mm": 28, "concrete_305mm": 35, "open": 0
 }
+# ================================================================================
 
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s: %(message)s',
-    handlers=[
-        logging.FileHandler("simulator.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
-
 logger = logging.getLogger("SimulatorServer")
 
+
 class SimulatorServer:
-    def __init__(self, host='0.0.0.0', port=5000, max_clients=5,
-                 min_delay=0.01, max_delay=0.1,
-                 snr_drop_threshold=2.0):
+    def __init__(self, host='0.0.0.0', port=5000, max_clients=5):
         self.host = host
         self.port = port
         self.max_clients = max_clients
-        self.min_delay = min_delay
-        self.max_delay = max_delay
-        self.snr_drop_threshold = snr_drop_threshold
 
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -95,88 +87,81 @@ class SimulatorServer:
 
         self.clients = {}
         self.node_locations = {}
+        self.rx_busy_until = {}
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.shutting_down = False
-
-        self.signal_history = defaultdict(lambda: deque(maxlen=10))
         self.loss_streaks = defaultdict(int)
-        self.last_rx_time = defaultdict(float)
         self.active_transmissions = 0
         self.max_inflight_packets = 10
 
-    def update_signal_history(self, from_id, to_id, snr):
-        self.signal_history[(from_id, to_id)].append(snr)
-
-    def average_snr(self, from_id, to_id, current_snr):
-        history = self.signal_history.get((from_id, to_id), [])
-        return sum(history) / len(history) if history else current_snr
-
-    def check_collision(self, to_id):
-        now = time.time()
-        if abs(now - self.last_rx_time[to_id]) < 0.005:
-            return True
-        self.last_rx_time[to_id] = now
-        return False
-
-    def should_drop(self, from_id, to_id, snr):
-        avg_snr = self.average_snr(from_id, to_id, snr)
+    def should_drop(self, from_id, to_id):
         key = (from_id, to_id)
-
-        if avg_snr < 0:
-            base_prob = 1.0
-        elif avg_snr < self.snr_drop_threshold:
-            base_prob = 0.7
-        elif avg_snr < self.snr_drop_threshold + 2:
-            base_prob = 0.3
-        else:
-            base_prob = 0.05
-
-        base_prob += min(self.loss_streaks[key] * 0.1, 0.5)
+        prob = 0.0
         if self.active_transmissions > self.max_inflight_packets:
-            base_prob += 0.2
-
-        drop = random.random() < min(base_prob, 1.0)
+            prob += 0.3
+        prob += min(self.loss_streaks[key] * 0.05, 0.3)
+        drop = random.random() < prob
         self.loss_streaks[key] = self.loss_streaks[key] + 1 if drop else 0
         return drop
 
-    def generate_rssi(self, base_rssi):
-        noise = random.uniform(-2.0, 2.0)
-        return max(-120, min(-40, base_rssi + noise))
-
     def compute_environmental_loss(self, distance_km, aqi, weather, obstacle):
         path_loss = 32.45 + 20 * math.log10(distance_km) + 20 * math.log10(868)
-        path_loss += RAIN_DELAY_FACTORS.get(weather, 0.0) * distance_km
+        path_loss += WEATHER_ATTEN_DB_PER_KM.get(weather, 0.0) * distance_km
         if aqi > 50:
             path_loss += ((aqi - 50) / 100.0) * 0.02 * distance_km
         path_loss += OBSTACLE_LOSS_DB.get(obstacle, 0.0)
         return path_loss
 
-    def compute_environmental_delay(self, distance_km, aqi, weather, obstacle):
-        delay_ms = distance_km * 5
-        delay_ms += distance_km * RAIN_DELAY_FACTORS.get(weather, 0)
-        if aqi > 100:
-            delay_ms += distance_km * ((aqi - 100) / 50) * 5
-        if obstacle:
-            delay_ms += random.uniform(5, 25)
-        delay_ms += random.uniform(1, 5)
-        return delay_ms
+    def compute_airtime_ms(self, payload_len, sf=7, bw=125000, cr=1, preamble_len=8, header_enabled=True, low_datarate_optimize=None):
+        tsym = (2 ** sf) / bw
+        de = 1 if (low_datarate_optimize if low_datarate_optimize is not None else sf >= 11) else 0
+        ih = 0 if header_enabled else 1
+        payload_symb_nb = 8 + max(
+            math.ceil(
+                (8 * payload_len - 4 * sf + 28 + 16 - 20 * ih)
+                / (4 * (sf - 2 * de))
+            ) * (cr + 4),
+            0,
+        )
+        t_air = (preamble_len + 4.25) * tsym + payload_symb_nb * tsym
+        return t_air * 1000.0
 
-    def start(self):
-        logger.info(f"[~] Starting simulator server on {self.host}:{self.port} ...")
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(self.max_clients)
-        signal.signal(signal.SIGINT, self._handle_signal)
-
-        try:
-            while not self.stop_event.is_set():
-                try:
-                    conn, addr = self.server_socket.accept()
-                    threading.Thread(target=self._handle_client, args=(conn, addr), daemon=True).start()
-                except socket.timeout:
-                    continue
-        finally:
-            self.shutdown()
+    def compute_snr(self, rssi, sf, distance_km, weather, obstacle):
+        """
+        Compute realistic SNR for LoRa given:
+        - RSSI (after path loss)
+        - Spreading Factor (defines theoretical max SNR)
+        - Distance (models SNR decay)
+        - Weather (adds dB/km attenuation)
+        - Obstacle (adds fixed attenuation)
+        """
+        # --- Step 1: Noise floor ---
+        noise_figure = 6  # typical for SX127x
+        bandwidth = 125000  # Hz
+        noise_floor = -174 + 10 * math.log10(bandwidth) + noise_figure  # dBm
+        # --- Step 2: Theoretical SNR upper bound from SF ---
+        sf_min_snr, sf_max_snr = SF_SNR_RANGES.get(sf, (-20, 12.5))
+        # --- Step 3: SNR decay by distance ---
+        decay_rate_db_per_km = 0.6
+        snr_decay = distance_km * decay_rate_db_per_km
+        # --- Step 4: Weather impact (extra SNR loss) ---
+        weather_atten_db = WEATHER_ATTEN_DB_PER_KM.get(weather, 0.0) * distance_km
+        # --- Step 5: Obstacle impact (static dB loss) ---
+        obstacle_loss_db = OBSTACLE_LOSS_DB.get(obstacle, 0.0)
+        # --- Step 6: Raw calculated SNR ---
+        raw_snr = rssi - noise_floor
+        # --- Step 7: Deduct environmental degradation from ideal max SNR ---
+        realistic_snr = sf_max_snr - snr_decay - weather_atten_db - obstacle_loss_db
+        snr = min(realistic_snr, raw_snr)
+        snr = max(snr, sf_min_snr)
+        return snr
+    
+    def snr_penalty_sigmoid(self, snr, snr_max=12.5):
+        k = 0.9  # curve steepness
+        x0 = snr_max / 2.0
+        sigmoid = 1.0 / (1.0 + math.exp(-k * (x0 - snr)))
+        return 10.0 * sigmoid  # max 10 ms penalty
 
     def _handle_signal(self, sig, frame):
         self.shutdown()
@@ -206,66 +191,78 @@ class SimulatorServer:
                     meta = msg.get("meta", {})
                     from_id = msg.get("from")
                     to_id = meta.get("destination")
-
-                    with self.lock:
-                        from_loc = self.node_locations.get(from_id, (0, 0))
-
+                    from_loc = self.node_locations.get(from_id, (0, 0))
+                    tx_dbm = meta.get("tx_power", TX_POWER_DBM)
                     aqi = meta.get("aqi", DEFAULT_AQI)
                     weather = meta.get("weather", DEFAULT_WEATHER)
                     obstacle = meta.get("obstacle", DEFAULT_OBSTACLE)
+                    sf = meta.get("sf", DEFAULT_SPREAD_FACTOR)
+                    min_snr, max_snr = SF_SNR_RANGES.get(sf, (-20, 12.5))
+                    payload_len = len(msg.get("data", ""))
 
                     self.active_transmissions += 1
+                    try:
+                        targets = [(to_id, self.clients.get(to_id))] if to_id != 0xFF else [
+                            (nid, sock) for nid, sock in self.clients.items() if nid != from_id
+                        ]
 
-                    if to_id == 0xFF:
-                        # Broadcast to all other nodes
-                        with self.lock:
-                            for nid, client_sock in self.clients.items():
-                                if nid == from_id:
-                                    continue
-                                to_loc = self.node_locations.get(nid, (0, 0))
-                                distance_km = math.dist(from_loc, to_loc)
-                                delay = self.compute_environmental_delay(distance_km, aqi, weather, obstacle)
-                                time.sleep(delay / 1000.0)
-                                rssi = self.generate_rssi(TX_POWER_DBM - self.compute_environmental_loss(distance_km, aqi, weather, obstacle))
-                                snr = rssi - NOISE_FLOOR_DBM
-                                self.update_signal_history(from_id, nid, snr)
-                                if self.check_collision(nid) or self.should_drop(from_id, nid, snr):
-                                    logger.warning(f"[x] Dropped broadcast packet to Node {nid} (Distance={distance_km:.2f}km)")
-                                    continue
-                                msg["rssi"] = round(rssi, 2)
-                                msg["snr"] = round(snr, 2)
-                                try:
-                                    client_sock.sendall((json.dumps(msg) + '\n').encode())
-                                    logger.info(f"[✓] Delivered broadcast from Node {from_id} to Node {nid} (Distance={distance_km:.2f}km, RSSI={rssi:.2f}, SNR={snr:.2f})")
-                                except Exception as e:
-                                    logger.warning(f"[x] Failed to deliver to Node {nid}: {e}")
-                    else:
-                        with self.lock:
-                            to_loc = self.node_locations.get(to_id, (0, 0))
-                        distance_km = math.dist(from_loc, to_loc)
-                        delay = self.compute_environmental_delay(distance_km, aqi, weather, obstacle)
-                        time.sleep(delay / 1000.0)
-                        rssi = self.generate_rssi(TX_POWER_DBM - self.compute_environmental_loss(distance_km, aqi, weather, obstacle))
-                        snr = rssi - NOISE_FLOOR_DBM
-                        self.update_signal_history(from_id, to_id, snr)
-                        if self.check_collision(to_id) or self.should_drop(from_id, to_id, snr):
-                            logger.warning(f"[x] Dropped unicast packet to Node {to_id} (Distance={distance_km:.2f}km)")
-                            return
-                        msg["rssi"] = round(rssi, 2)
-                        msg["snr"] = round(snr, 2)
-                        with self.lock:
-                            target_sock = self.clients.get(to_id)
-                        if target_sock:
+                        for nid, client_sock in targets:
+                            to_loc = self.node_locations.get(nid, (0, 0))
+                            distance_km = math.dist(from_loc, to_loc)
+                            path_loss = self.compute_environmental_loss(distance_km, aqi, weather, obstacle)
+                            rssi = tx_dbm - path_loss
+                            rssi = max(-120, min(-30, rssi))
+                            snr = self.compute_snr(rssi, sf, distance_km, weather, obstacle)
+
+                            if distance_km > MAX_RANGE_KM:
+                                logger.warning(
+                                    f"[DROP] OUT_OF_RANGE: Packet from Node {from_id} to Node {nid} | "
+                                    f"Distance: {distance_km:.2f} km > {MAX_RANGE_KM} km"
+                                )
+                                continue
+                            
+                            # 1. Airtime
+                            airtime_ms = self.compute_airtime_ms(payload_len, sf=sf, cr=1)
+                            # 2. SNR penalty (simulate harder decoding under low SNR)
+                            snr_penalty_ms = self.snr_penalty_sigmoid(snr,max_snr)
+                            # 3. Weather/Obstacle penalty (physical media effects)
+                            media_penalty_ms = WEATHER_ATTEN_DB_PER_KM[weather] * distance_km * 5.0 + OBSTACLE_LOSS_DB[obstacle] * 0.5
+                            # 4. Optional random jitter for realism
+                            jitter_ms = random.uniform(0.5, 1.0)
+                            # 5. Total delay
+                            delay_ms = airtime_ms + snr_penalty_ms + media_penalty_ms + jitter_ms
+                            now = time.time()
+
+                            drop_reason = None
+                            if now < self.rx_busy_until.get(nid, 0):
+                                drop_reason = "COLLISION"
+                            elif snr < min_snr:
+                                drop_reason = "LOW_SNR"
+                            elif self.should_drop(from_id, nid):
+                                drop_reason = "CONGESTION"
+
+                            if drop_reason:
+                                logger.warning(
+                                    f"[DROP] Packet from Node {from_id} to Node {nid} dropped | "
+                                    f"Reason: {drop_reason} | RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | "
+                                    f"Distance: {distance_km:.2f} km | Delay: {delay_ms:.2f} ms"
+                                )
+                                continue
+
+                            self.rx_busy_until[nid] = now + delay_ms / 1000.0
+                            msg["rssi"] = round(rssi, 2)
+                            msg["snr"] = round(snr, 2)
                             try:
-                                target_sock.sendall((json.dumps(msg) + '\n').encode())
-                                logger.info(f"[✓] Delivered message from Node {from_id} to Node {to_id} (Distance={distance_km:.2f}km, RSSI={rssi:.2f}, SNR={snr:.2f})")
+                                client_sock.sendall((json.dumps(msg) + '\n').encode())
+                                logger.info(
+                                    f"[✓] Delivered packet from Node {from_id} to Node {nid} | "
+                                    f"RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | Distance: {distance_km:.2f} km | "
+                                    f"Delay: {delay_ms:.2f} ms"
+                                )
                             except Exception as e:
-                                logger.error(f"[x] Failed to send to Node {to_id}: {e}")
-                        else:
-                            logger.warning(f"[!] Destination node {to_id} not found")
-
-                    self.active_transmissions -= 1
-
+                                logger.warning(f"[x] Send failed to Node {nid}: {e}")
+                    finally:
+                        self.active_transmissions -= 1
         finally:
             if node_id:
                 with self.lock:
@@ -276,15 +273,35 @@ class SimulatorServer:
                 pass
             conn.close()
             logger.info(f"[-] Node {node_id} disconnected")
+    
+    def start(self):
+        """
+        Start the simulator server:
+        - Binds to TCP port
+        - Waits for incoming client connections
+        - Launches new threads to handle each client
+        - Handles graceful shutdown via signal interrupt
+        """
+        logger.info(f"[~] Starting simulator server on {self.host}:{self.port} ...")
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(self.max_clients)
+        signal.signal(signal.SIGINT, self._handle_signal)
+        try:
+            while not self.stop_event.is_set():
+                try:
+                    conn, addr = self.server_socket.accept()
+                    threading.Thread(target=self._handle_client, args=(conn, addr), daemon=True).start()
+                except socket.timeout:
+                    continue
+        finally:
+            self.shutdown()
 
     def shutdown(self):
         if self.shutting_down:
             return
         self.shutting_down = True
-
-        logger.info("\n[!] Shutting down server...")
+        logger.info("[!] Shutting down server...")
         self.stop_event.set()
-
         with self.lock:
             for sock in self.clients.values():
                 try:
@@ -293,14 +310,13 @@ class SimulatorServer:
                 except:
                     pass
             self.clients.clear()
-
         try:
             self.server_socket.close()
         except:
             pass
-
         logger.info("[✓] Server shutdown complete.")
         sys.exit(0)
+
 
 if __name__ == "__main__":
     server = SimulatorServer()
