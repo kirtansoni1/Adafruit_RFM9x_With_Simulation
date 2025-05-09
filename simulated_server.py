@@ -9,11 +9,13 @@ The server simulates physical transmission conditions such as RSSI, SNR, and del
 Usage:
 ------
 1. Run this server:
-   $ python simulated_server_improved.py
+   $ python simulated_server.py
 
-2. Run multiple simulated nodes:
-   $ python simpletest.py --simulate --id=1
-   $ python simpletest.py --simulate --id=2
+2. Run multiple simulated nodes in different terminals:
+   $ python example/rfm9x_node1.py --simulate
+   $ python example/rfm9x_node2.py --simulate
+
+3. Look at the rfm9x_simulation_node.py for more customized simulation
 """
 
 # ========================== IMPORTS ==========================
