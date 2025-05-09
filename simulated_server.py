@@ -398,11 +398,10 @@ class SimulatorServer:
             max_possible_snr = max_snr - (decay_factor * snr_range)
             realistic_snr = min(realistic_snr, max_possible_snr)
         
-        # 10. Apply random but deterministic SF-specific fading component
-        fading_seed = hash(f"{distance_km:.1f}-{sf}") % 1000 / 1000.0
-        # Higher SF has less fading variation (more stable links)
-        fading_intensity = 2.5 - ((sf - 7) * 0.2)  # SF7: 2.5dB, SF12: 1.5dB
-        fading_component = (fading_seed * 2 - 1) * fading_intensity  # -intensity to +intensity range
+        # 10. Apply small Gaussian fading based on distance
+        # This reflects small-scale fading due to environment
+        fading_std_dev = 0.8 - ((sf - 7) * 0.05)  # SF7: 0.8dB jitter, SF12: 0.55dB
+        fading_component = random.gauss(0, fading_std_dev)
         realistic_snr += fading_component
         
         # 11. Final SNR is constrained to realistic range

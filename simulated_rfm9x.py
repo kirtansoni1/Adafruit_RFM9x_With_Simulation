@@ -22,6 +22,7 @@ import socket
 import json
 import time
 import random
+import binascii
 
 
 class SimulatedRFM9x:
@@ -76,6 +77,9 @@ class SimulatedRFM9x:
             "frequency": self.frequency
         }
         self.sock.sendall((json.dumps(msg) + '\n').encode())
+    
+    def _crc16(self, data: bytes) -> int:
+        return binascii.crc_hqx(data, 0xFFFF)
 
     def send(self, data: bytes, *, keep_listening=False, destination=None,
              node=None, identifier=None, flags=None):
@@ -101,6 +105,9 @@ class SimulatedRFM9x:
             "flags": flags if flags is not None else self.flags
         }
 
+        payload = data.encode('utf-8')
+        crc = self._crc16(payload) if self.enable_crc else None
+
         msg = {
             "type": "tx",
             "from": self.node,
@@ -108,7 +115,8 @@ class SimulatedRFM9x:
             "meta": {
                 **header,
                 "tx_power": self.tx_power,
-                "timestamp": time.time()
+                "timestamp": time.time(),
+                "crc": crc
             }
         }
 
@@ -141,6 +149,17 @@ class SimulatedRFM9x:
 
             payload = msg.get("data", "")
             header = msg.get("meta", {})
+            received_crc = header.get("crc")
+
+            if self.enable_crc and received_crc is not None:
+                if isinstance(payload, str):
+                    payload_bytes = payload.encode('utf-8')
+                else:
+                    payload_bytes = payload
+                computed_crc = self._crc16(payload_bytes)
+                if computed_crc != received_crc:
+                    print(f"[CRC ERROR] Received: {received_crc}, Computed: {computed_crc}")
+                    return None
 
             # Respond with ACK if requested and not already an ACK
             if with_ack and not (header.get("flags", 0) & 0x80) and header.get("destination") != 0xFF:

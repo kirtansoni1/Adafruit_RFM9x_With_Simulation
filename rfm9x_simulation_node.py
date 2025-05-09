@@ -82,6 +82,7 @@ def main():
         rfm9x.destination = args.destination if args.destination else 0XFF
         rfm9x.location = location
         rfm9x.frequency = args.frequency
+        rfm9x.enable_crc = False
         rfm9x.initialize()
 
         if args.mode == "tx":
