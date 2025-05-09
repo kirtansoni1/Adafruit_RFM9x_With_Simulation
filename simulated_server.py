@@ -762,7 +762,7 @@ class SimulatorServer:
         self.server_socket.listen(self.max_clients)
         signal.signal(signal.SIGINT, self._handle_signal)
         try:
-            while not             self.stop_event.is_set():
+            while not self.stop_event.is_set():
                 try:
                     conn, addr = self.server_socket.accept()
                     threading.Thread(target=self._handle_client, args=(conn, addr), daemon=True).start()

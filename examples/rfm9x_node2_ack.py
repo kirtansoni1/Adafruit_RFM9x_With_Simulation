@@ -8,27 +8,44 @@ import time
 import board
 import busio
 import digitalio
-import adafruit_rfm9x
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--simulate", action="store_true", help="Run in simulated mode")
+args = parser.parse_args()
 
 # Define radio parameters.
 RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
 # module! Can be a value like 915.0, 433.0, etc.
 
-# Define pins connected to the chip.
-# set GPIO pins as necessary - this example is for Raspberry Pi
-CS = digitalio.DigitalInOut(board.CE1)
-RESET = digitalio.DigitalInOut(board.D25)
+if args.simulate:
+    import time
+    import sys
+    import os
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from simulated_rfm9x import SimulatedRFM9x
+    rfm9x = SimulatedRFM9x(frequency=RADIO_FREQ_MHZ)
+else:
+    import adafruit_rfm9x
+    # Define pins connected to the chip.
+    # set GPIO pins as necessary - this example is for Raspberry Pi
+    CS = digitalio.DigitalInOut(board.CE1)
+    RESET = digitalio.DigitalInOut(board.D25)
 
-# Initialize SPI bus.
-spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
-# Initialze RFM radio
-rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
+    # Initialize SPI bus.
+    spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
+    # Initialze RFM radio
+    rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
 
 # set delay before transmitting ACK (seconds)
 rfm9x.ack_delay = 0.1
 # set node addresses
 rfm9x.node = 2
 rfm9x.destination = 1
+
+if args.simulate:
+    rfm9x.initialize() # Must be called to set the attributes while simulation!
+
 # initialize counter
 counter = 0
 ack_failed_counter = 0

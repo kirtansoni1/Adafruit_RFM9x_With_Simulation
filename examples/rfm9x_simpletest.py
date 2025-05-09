@@ -6,41 +6,26 @@
 import board
 import busio
 import digitalio
-
-import adafruit_rfm9x
-
-# ------------------------------
-# Simulation Setup Additions
-# ------------------------------
 import argparse
-import sys
 
-try:
-    from simulated_rfm9x import SimulatedRFM9x
-except ImportError:
-    SimulatedRFM9x = None
-
-parser = argparse.ArgumentParser(description="RFM9x Simple Test")
-parser.add_argument("--simulate", action="store_true", help="Enable simulation mode")
-parser.add_argument("--id", type=int, default=1, help="Simulated node ID, default='1'")
-parser.add_argument("--location", default="0,0", help="Node location as 'x,y'")
-
+parser = argparse.ArgumentParser()
+parser.add_argument("--simulate", action="store_true", help="Run in simulated mode")
 args = parser.parse_args()
-x, y = map(float, args.location.split(","))
-# ------------------------------
-# ------------------------------
+
 
 # Define radio parameters.
 RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
 # module! Can be a value like 915.0, 433.0, etc.
 
+
 if args.simulate:
-    if SimulatedRFM9x is None:
-        print("Simulation module not found.")
-        sys.exit(1)
-    rfm9x = SimulatedRFM9x(node_id=args.id, location=(x, y), frequency=RADIO_FREQ_MHZ)
-    LED = None  # No LED in simulation mode
+    import sys
+    import os
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from simulated_rfm9x import SimulatedRFM9x
+    rfm9x = SimulatedRFM9x(frequency=RADIO_FREQ_MHZ)
 else:
+    import adafruit_rfm9x
     # Define pins connected to the chip, use these if wiring up the breakout according to the guide:
     CS = digitalio.DigitalInOut(board.D5)
     RESET = digitalio.DigitalInOut(board.D6)
@@ -59,12 +44,15 @@ else:
     # Initialze RFM radio
     rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
 
-    # Note that the radio is configured in LoRa mode so you can't control sync
-    # word, encryption, frequency deviation, or other settings!
+# Note that the radio is configured in LoRa mode so you can't control sync
+# word, encryption, frequency deviation, or other settings!
 
-    # You can however adjust the transmit power (in dB).  The default is 13 dB but
-    # high power radios like the RFM95 can go up to 23 dB:
-    rfm9x.tx_power = 23
+# You can however adjust the transmit power (in dB).  The default is 13 dB but
+# high power radios like the RFM95 can go up to 23 dB:
+rfm9x.tx_power = 23
+
+if args.simulate:
+    rfm9x.initialize() # Must be called to set the attributes while simulation!
 
 # Send a packet.  Note you can only send a packet up to 252 bytes in length.
 # This is a limitation of the radio packet size, so if you need to send larger
@@ -86,12 +74,12 @@ while True:
     # If no packet was received during the timeout then None is returned.
     if packet is None:
         # Packet has not been received
-        if LED:
+        if not args.simulate:
             LED.value = False
         print("Received nothing! Listening again...")
     else:
         # Received a packet!
-        if LED:
+        if not args.simulate:
             LED.value = True
         # Print out the raw bytes of the packet:
         print("Received (raw bytes): {0}".format(packet))
@@ -99,13 +87,9 @@ while True:
         # receive raw bytes and need to convert to a text format like ASCII
         # if you intend to do string processing on your data.  Make sure the
         # sending side is sending ASCII data before you try to decode!
-        try:
-            packet_text = str(packet, "ascii")
-            print("Received (ASCII): {0}".format(packet_text))
-        except Exception:
-            print("Received undecodable bytes.")
+        packet_text = str(packet, "ascii")
+        print("Received (ASCII): {0}".format(packet_text))
         # Also read the RSSI (signal strength) of the last received message and
         # print it.
-        rssi = getattr(rfm9x, 'last_rssi', None)
-        if rssi is not None:
-            print("Received signal strength: {0} dB".format(rssi))
+        rssi = rfm9x.last_rssi
+        print("Received signal strength: {0} dB".format(rssi))

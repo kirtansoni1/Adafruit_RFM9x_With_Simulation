@@ -8,7 +8,12 @@ import time
 import board
 import busio
 import digitalio
-import adafruit_rfm9x
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--simulate", action="store_true", help="Run in simulated mode")
+args = parser.parse_args()
+
 
 # set the time interval (seconds) for sending packets
 transmit_interval = 10
@@ -17,15 +22,24 @@ transmit_interval = 10
 RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
 # module! Can be a value like 915.0, 433.0, etc.
 
-# Define pins connected to the chip.
-CS = digitalio.DigitalInOut(board.CE1)
-RESET = digitalio.DigitalInOut(board.D25)
+if args.simulate:
+    import time
+    import sys
+    import os
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from simulated_rfm9x import SimulatedRFM9x
+    rfm9x = SimulatedRFM9x(frequency=RADIO_FREQ_MHZ)
+else:
+    import adafruit_rfm9x
+    # Define pins connected to the chip.
+    CS = digitalio.DigitalInOut(board.CE1)
+    RESET = digitalio.DigitalInOut(board.D25)
 
-# Initialize SPI bus.
-spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
+    # Initialize SPI bus.
+    spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 
-# Initialze RFM radio
-rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
+    # Initialze RFM radio
+    rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
 
 # Note that the radio is configured in LoRa mode so you can't control sync
 # word, encryption, frequency deviation, or other settings!
