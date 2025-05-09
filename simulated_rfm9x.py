@@ -26,7 +26,7 @@ import random
 
 class SimulatedRFM9x:
 
-    def __init__(self, node_id=1, server_ip='localhost', server_port=5000, location=(0, 0)):
+    def __init__(self, node_id=1, server_ip='localhost', server_port=5000, location=(0, 0), frequency = 915.0):
         """
         Initialize the simulated RFM9x module.
 
@@ -35,6 +35,7 @@ class SimulatedRFM9x:
         - server_ip (str): IP address of the simulation server.
         - server_port (int): Port of the simulation server.
         - location (tuple): (x, y) location in km
+        - frequency (int): Frequency at which the node is sending data.
         """
         self.node_id = node_id
         self.location = location
@@ -50,6 +51,7 @@ class SimulatedRFM9x:
         self.last_rssi = -42  # updated after each receive
         self.last_snr = 0.0
         self.enable_crc = True
+        self.frequency = frequency
 
         # Packet metadata
         self.sequence_number = 0
@@ -72,7 +74,8 @@ class SimulatedRFM9x:
         msg = {
             "type": "register",
             "node_id": self.node_id,
-            "location": self.location
+            "location": self.location,
+            "frequency": self.frequency
         }
         self.sock.sendall((json.dumps(msg) + '\n').encode())
 

@@ -26,6 +26,9 @@ from simulated_rfm9x import SimulatedRFM9x
 # ========================== CONFIGURABLE DEFINES ==========================
 MESSAGE = "Hello from RFM9x Simulator Node"
 TX_POWER = 23  # dBm
+# Define radio parameters.
+RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
+# module! Can be a value like 915.0, 433.0, etc.
 # ==========================================================================
 
 def run_tx(radio, interval=5, broadcast=True):
@@ -75,7 +78,7 @@ def main():
     location = (x, y)
 
     # Create simulated radio
-    radio = SimulatedRFM9x(node_id=args.id, location=location)
+    radio = SimulatedRFM9x(node_id=args.id, location=location, frequency=RADIO_FREQ_MHZ)
     radio.tx_power = TX_POWER
     radio.destination = args.destination if args.destination else 0XFF
 

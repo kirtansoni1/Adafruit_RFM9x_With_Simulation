@@ -37,6 +37,7 @@ TX_POWER_DBM = 23
 MAX_RANGE_KM = 25.0
 NOISE_FIGURE = 6
 BANDWIDTH = 125000  # Hz
+RADIO_FREQ_MHZ = 915.0
 
 SF_SNR_RANGES = {
     7: (-7.5, 12.5), 8: (-10, 10), 9: (-13, 7.5),
@@ -77,6 +78,7 @@ class SimulatorServer:
 
         self.clients = {}
         self.node_locations = {}
+        self.node_frequency = {}
         self.rx_busy_until = {}
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -316,10 +318,12 @@ class SimulatorServer:
                 if msg["type"] == "register":
                     node_id = msg["node_id"]
                     location = tuple(msg.get("location", (0, 0)))
+                    frequency = msg["frequency"]
                     with self.lock:
                         self.clients[node_id] = conn
                         self.node_locations[node_id] = location
-                    logger.info(f"[+] RFM9x Node {node_id} registered at {location}")
+                        self.node_frequency[node_id] = frequency
+                    logger.info(f"[+] RFM9x Node {node_id} registered at {location} with frequency: {frequency}")
                 elif msg["type"] == "tx":
                     self._process_transmission(msg)
         finally:
@@ -341,9 +345,10 @@ class SimulatorServer:
         1. Extract metadata and node positions
         2. Compute path loss, RSSI, SNR
         3. Check distance limits
-        4. Calculate delay (airtime + penalties)
-        5. Apply packet drop logic
-        6. Forward packet to target client with final metadata
+        5. Check Frequency match
+        5. Calculate delay (airtime + penalties)
+        6. Apply packet drop logic
+        7. Forward packet to target client with final metadata
 
         Args:
             msg (dict): Transmission message from sender.
@@ -359,22 +364,28 @@ class SimulatorServer:
         sf = meta.get("sf", DEFAULT_SPREAD_FACTOR)
         payload_len = len(msg.get("data", ""))
         min_snr, max_snr = SF_SNR_RANGES.get(sf, (-20, 12.5))
+        sender_freq = self.node_frequency.get(from_id)
 
         self.active_transmissions += 1
         try:
             if to_id != 0xFF:
                 # Unicast mode
                 client_sock = self.clients.get(to_id)
-                if client_sock:
+                receiver_freq = self.node_frequency.get(to_id)
+                if client_sock and sender_freq == receiver_freq:
                     targets = [(to_id, client_sock)]
+                elif client_sock:
+                    logger.warning(f"[DROP] FREQ_MISMATCH: Node {from_id} → Node {to_id} | {sender_freq} MHz ≠ {receiver_freq} MHz")
+                    return
                 else:
                     logger.warning(f"[DROP] INVALID_DESTINATION: Node {to_id} not registered or offline")
                     return
             else:
-                # Broadcast mode
+                # Broadcast mode with frequency check
                 targets = [
-                    (nid, sock) for nid, sock in self.clients.items()
-                    if nid != from_id and sock is not None
+                    (nid, sock)
+                    for nid, sock in self.clients.items()
+                    if nid != from_id and sock is not None and self.node_frequency.get(nid) == sender_freq
                 ]
             for nid, client_sock in targets:
                 to_loc = self.node_locations.get(nid, (0, 0))
