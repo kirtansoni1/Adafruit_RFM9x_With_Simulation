@@ -55,7 +55,7 @@ class SimulatedRFM9x:
         self.sequence_number = 0
         self.flags = 0
         self.node = self.node_id  # source address
-        self.destination = 0xFF   # default is broadcast
+        self.destination = None   # default is broadcast
         self.identifier = 0
 
         # Timing

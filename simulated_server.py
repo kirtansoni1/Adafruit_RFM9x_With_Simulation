@@ -362,9 +362,20 @@ class SimulatorServer:
 
         self.active_transmissions += 1
         try:
-            targets = [(to_id, self.clients.get(to_id))] if to_id != 0xFF else [
-                (nid, sock) for nid, sock in self.clients.items() if nid != from_id
-            ]
+            if to_id != 0xFF:
+                # Unicast mode
+                client_sock = self.clients.get(to_id)
+                if client_sock:
+                    targets = [(to_id, client_sock)]
+                else:
+                    logger.warning(f"[DROP] INVALID_DESTINATION: Node {to_id} not registered or offline")
+                    return
+            else:
+                # Broadcast mode
+                targets = [
+                    (nid, sock) for nid, sock in self.clients.items()
+                    if nid != from_id and sock is not None
+                ]
             for nid, client_sock in targets:
                 to_loc = self.node_locations.get(nid, (0, 0))
                 distance_km = math.dist(from_loc, to_loc)
@@ -388,6 +399,7 @@ class SimulatorServer:
                 self.rx_busy_until[nid] = now + delay_ms / 1000.0
                 msg["rssi"] = round(rssi, 2)
                 msg["snr"] = round(snr, 2)
+                time.sleep(delay_ms/1000)
                 try:
                     client_sock.sendall((json.dumps(msg) + '\n').encode())
                     logger.info(f"[✓] Delivered packet from {from_id} to {nid} | RSSI: {rssi:.2f} | SNR: {snr:.2f} | Distance: {distance_km:.2f} km | Delay: {delay_ms:.2f} ms")
