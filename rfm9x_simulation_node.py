@@ -26,9 +26,6 @@ from simulated_rfm9x import SimulatedRFM9x
 # ========================== CONFIGURABLE DEFINES ==========================
 MESSAGE = "Hello from RFM9x Simulator Node"
 TX_POWER = 23  # dBm
-# Define radio parameters.
-RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
-# module! Can be a value like 915.0, 433.0, etc.
 # ==========================================================================
 
 def run_tx(radio, interval=5, broadcast=True):
@@ -61,6 +58,7 @@ def main():
     parser.add_argument("--interval", type=float, default=5.0, help="Transmission interval in seconds")
     parser.add_argument("--broadcast", action="store_true", help="Enable broadcast mode for TX")
     parser.add_argument("--destination", type=int, help="Destination Node ID for unicast")
+    parser.add_argument("--frequency", type=float, default=915.0, help="Communication frequency of the Node")
 
     args = parser.parse_args()
 
@@ -78,14 +76,18 @@ def main():
     location = (x, y)
 
     # Create simulated radio
-    radio = SimulatedRFM9x(node_id=args.id, location=location, frequency=RADIO_FREQ_MHZ)
-    radio.tx_power = TX_POWER
-    radio.destination = args.destination if args.destination else 0XFF
+    radio_feq_mhz = args.frequency
+    try:
+        radio = SimulatedRFM9x(node_id=args.id, location=location, frequency=radio_feq_mhz)
+        radio.tx_power = TX_POWER
+        radio.destination = args.destination if args.destination else 0XFF
 
-    if args.mode == "tx":
-        run_tx(radio, interval=args.interval, broadcast=args.broadcast)
-    else:
-        run_rx(radio)
+        if args.mode == "tx":
+            run_tx(radio, interval=args.interval, broadcast=args.broadcast)
+        else:
+            run_rx(radio)
+    except ConnectionRefusedError:
+        print("[X ERROR] Please run simulated_server.py file first.")
 
 if __name__ == "__main__":
     main()
