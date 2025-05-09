@@ -103,10 +103,11 @@ OBSTACLE_LOSS_DB = {
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s: %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("simulation.log", mode='w')  # Overwrites each run
+    ]
 )
-logger = logging.getLogger("SimulatorServer")
-
 
 # ========================== SIMULATOR SERVER ==========================
 class SimulatorServer:
@@ -211,7 +212,7 @@ class SimulatorServer:
         
         # Debug log for drop probability components
         if random.random() < 0.05:  # Only log 5% of packets to avoid log spam
-            logger.debug(f"Drop probability factors: congestion={congestion_prob:.2f}, "
+            logging.debug(f"Drop probability factors: congestion={congestion_prob:.2f}, "
                         f"streak={streak_prob:.2f}, snr={snr_prob:.2f}, rssi={rssi_prob:.2f}, "
                         f"interference={interference_prob:.2f}, SF={sf}, "
                         f"total={prob:.2f}, decision={'DROP' if drop else 'KEEP'}")
@@ -618,7 +619,7 @@ class SimulatorServer:
         Runs in its own thread per connection.
         """
         conn_file = conn.makefile('r')
-        logger.info(f"[+] Connected from {addr}")
+        logging.info(f"[+] Connected from {addr}")
         node_id = None
         conn.settimeout(None)
         try:
@@ -635,7 +636,7 @@ class SimulatorServer:
                         self.clients[node_id] = conn
                         self.node_locations[node_id] = location
                         self.node_frequency[node_id] = frequency
-                    logger.info(f"[+] RFM9x Node {node_id} registered at {location} with frequency: {frequency}")
+                    logging.info(f"[+] RFM9x Node {node_id} registered at {location} with frequency: {frequency}")
                 elif msg["type"] == "tx":
                     self._process_transmission(msg)
         finally:
@@ -647,7 +648,7 @@ class SimulatorServer:
             except:
                 pass
             conn.close()
-            logger.info(f"[-] Node {node_id} disconnected")
+            logging.info(f"[-] Node {node_id} disconnected")
 
     def _process_transmission(self, msg):
         """
@@ -687,10 +688,10 @@ class SimulatorServer:
                 if client_sock and sender_freq == receiver_freq:
                     targets = [(to_id, client_sock)]
                 elif client_sock:
-                    logger.warning(f"[DROP] FREQ_MISMATCH: Node {from_id} → Node {to_id} | {sender_freq} MHz ≠ {receiver_freq} MHz")
+                    logging.warning(f"[DROP] FREQ_MISMATCH: Node {from_id} → Node {to_id} | {sender_freq} MHz ≠ {receiver_freq} MHz")
                     return
                 else:
-                    logger.warning(f"[DROP] INVALID_DESTINATION: Node {to_id} not registered or offline")
+                    logging.warning(f"[DROP] INVALID_DESTINATION: Node {to_id} not registered or offline")
                     return
             else:
                 # Broadcast mode with frequency check
@@ -725,7 +726,7 @@ class SimulatorServer:
                 drop_reason = self.get_drop_reason(now, rssi, sf, nid, snr, min_snr, from_id, distance_km)
                 
                 if drop_reason:
-                    logger.warning(f"[DROP] {drop_reason}: Packet from {from_id} to {nid} | "
+                    logging.warning(f"[DROP] {drop_reason}: Packet from {from_id} to {nid} | "
                                 f"RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | "
                                 f"SF: {sf} | Distance: {distance_km:.2f} km | Delay: {delay_ms} ms")
                     continue
@@ -743,11 +744,11 @@ class SimulatorServer:
                 # Deliver message to receiver
                 try:
                     client_sock.sendall((json.dumps(msg) + '\n').encode())
-                    logger.info(f"[✓] Delivered packet from {from_id} to {nid} | "
+                    logging.info(f"[✓] Delivered packet from {from_id} to {nid} | "
                             f"RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | "
                             f"SF: {sf} | Distance: {distance_km:.2f} km | Delay: {delay_ms:.2f} ms")
                 except Exception as e:
-                    logger.warning(f"[x] Send failed to Node {nid}: {e}")
+                    logging.warning(f"[x] Send failed to Node {nid}: {e}")
         finally:
             self.active_transmissions -= 1
 
@@ -758,7 +759,7 @@ class SimulatorServer:
         - Launch threads for client
         - Handle Ctrl+C for shutdown
         """
-        logger.info(f"[~] Starting improved simulator server on {self.host}:{self.port} ...")
+        logging.info(f"[~] Starting improved simulator server on {self.host}:{self.port} ...")
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(self.max_clients)
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -779,7 +780,7 @@ class SimulatorServer:
         if self.shutting_down:
             return
         self.shutting_down = True
-        logger.info("[!] Shutting down server...")
+        logging.info("[!] Shutting down server...")
         self.stop_event.set()
         with self.lock:
             for sock in self.clients.values():
@@ -793,7 +794,7 @@ class SimulatorServer:
             self.server_socket.close()
         except:
             pass
-        logger.info("[✓] Server shutdown complete.")
+        logging.info("[✓] Server shutdown complete.")
         sys.exit(0)
 
 
