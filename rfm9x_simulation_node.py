@@ -24,7 +24,7 @@ import time
 from simulated_rfm9x import SimulatedRFM9x
 
 # ========================== CONFIGURABLE DEFINES ==========================
-MESSAGE = "Hello from RFM9x Simulator Node"
+MESSAGE = "Hello"
 TX_POWER = 23  # dBm
 # ==========================================================================
 
