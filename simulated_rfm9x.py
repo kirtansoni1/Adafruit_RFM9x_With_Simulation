@@ -26,7 +26,7 @@ import random
 
 class SimulatedRFM9x:
 
-    def __init__(self, node_id=1, server_ip='localhost', server_port=5000, location=(0, 0), frequency = 915.0):
+    def __init__(self, server_ip='localhost', server_port=5000):
         """
         Initialize the simulated RFM9x module.
 
@@ -37,8 +37,10 @@ class SimulatedRFM9x:
         - location (tuple): (x, y) location in km
         - frequency (int): Frequency at which the node is sending data.
         """
-        self.node_id = node_id
-        self.location = location
+        self.node_id = 1
+        self.location = (0,0)
+        self.frequency = 915.0
+        self.destination = None
         self.server = (server_ip, server_port)
 
         # Create and connect TCP socket to simulation server
@@ -51,13 +53,10 @@ class SimulatedRFM9x:
         self.last_rssi = -42  # updated after each receive
         self.last_snr = 0.0
         self.enable_crc = True
-        self.frequency = frequency
 
         # Packet metadata
         self.sequence_number = 0
         self.flags = 0
-        self.node = self.node_id  # source address
-        self.destination = None   # default is broadcast
         self.identifier = 0
 
         # Timing
@@ -67,10 +66,9 @@ class SimulatedRFM9x:
         self.ack_retries = 5
 
         self._keep_listening = False  # internal state tracking
-        self._register()
 
-    def _register(self):
-        """Send a registration message to the server to announce this node."""
+    def initialize(self):
+        """Must be called after setting node, location, and frequency."""
         msg = {
             "type": "register",
             "node_id": self.node_id,
@@ -88,7 +86,7 @@ class SimulatedRFM9x:
         - data (bytes): The payload to transmit.
         - keep_listening (bool): If True, receive mode is re-enabled immediately after sending.
         - destination (int): Destination address (default: 0xFF broadcast).
-        - node (int): Source address override (default: self.node).
+        - node (int): Source address override (default: self.node_id).
         - identifier (int): Sequence number for reliable datagrams.
         - flags (int): Bit flags (ACK, retry, etc.).
         """
@@ -98,7 +96,7 @@ class SimulatedRFM9x:
         # Build metadata for the RadioHead-style header
         header = {
             "destination": destination if destination is not None else self.destination,
-            "node": node if node is not None else self.node,
+            "node": node if node is not None else self.node_id,
             "identifier": identifier if identifier is not None else self.identifier,
             "flags": flags if flags is not None else self.flags
         }

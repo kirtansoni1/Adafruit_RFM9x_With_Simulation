@@ -32,7 +32,7 @@ from collections import defaultdict
 DEFAULT_AQI = 50
 DEFAULT_WEATHER = 'clear'
 DEFAULT_OBSTACLE = 'open'
-DEFAULT_SPREAD_FACTOR = 10
+DEFAULT_SPREAD_FACTOR = 7
 TX_POWER_DBM = 23
 NOISE_FIGURE = 6
 BANDWIDTH = 125000  # Hz
@@ -130,7 +130,7 @@ class SimulatorServer:
         # Thermal noise floor (dBm) = -174 + 10*log10(BW)
         self.noise_floor_dbm = -174 + 10 * math.log10(BANDWIDTH) + NOISE_FIGURE
 
-    def should_drop(self, from_id, to_id, rssi, snr, sf):
+    def should_drop(self, from_id, to_id, rssi, snr, sf, distance_km):
         """
         Calculate packet drop probability based on:
         - Congestion (active transmissions)
@@ -154,9 +154,6 @@ class SimulatorServer:
             return True
             
         # 3. Above maximum theoretical range = high probability drop
-        from_loc = self.node_locations.get(from_id, (0, 0))
-        to_loc = self.node_locations.get(to_id, (0, 0))
-        distance_km = math.dist(from_loc, to_loc)
         max_range = SF_MAX_RANGE_KM.get(sf, 10.0)
         
         # Distance-based probability increases dramatically beyond max range
@@ -202,7 +199,7 @@ class SimulatorServer:
         # 9. Total drop probability with random factor
         base_prob = congestion_prob + streak_prob + snr_prob + rssi_prob + interference_prob
         # Add some randomness but cap at 98%
-        prob = min(base_prob + random.uniform(-0.05, 0.15), 0.98)
+        prob = min(base_prob, 0.98)
         
         # Execute the drop decision
         drop = random.random() < prob
@@ -219,6 +216,7 @@ class SimulatorServer:
             
         return drop
 
+    
     def compute_environmental_loss(self, from_id, to_id, distance_km, aqi, weather, obstacle, sf=7):
         """
         Calculate total signal loss (in dB) from transmitter to receiver, 
@@ -236,26 +234,47 @@ class SimulatorServer:
         Returns:
             float: Total environmental path loss in dB.
         """
-        # 1: Free-space path loss using ITU standard
-        # FSPL(dB) = 32.45 + 20*log10(distance_km) + 20*log10(frequency_MHz)
-        path_loss = 32.45 + 20 * math.log10(max(distance_km, 0.001)) + 20 * math.log10(FREQUENCY_MHZ)
+        # Realistic minimum distance (set to 2 meters = 0.002 km)
+        min_distance_km = 0.002
         
-        # 2: Weather attenuation (rain, fog etc) in dB/km multiplied by distance
+        # Apply minimum path loss even at zero distance (device separation/antenna characteristics)
+        # This represents the mismatch and inefficiency in real-world radio systems
+        min_path_loss = 32.0
+        
+        # 1: Set a realistic minimum distance and enforce realistic close-range behavior
+        # Even at very close ranges, we never exceed realistic signal strength 
+        effective_distance_km = max(distance_km, min_distance_km)
+        
+        # Add a near-field attenuation factor for very close distances
+        # Real antennas don't follow the inverse square law in the near field
+        near_field_attenuation = 0
+        if distance_km < 0.010:  # Within 10 meters
+            # Progressive attenuation that increases as we get closer
+            near_field_attenuation = 15.0 * (1.0 - (distance_km / 0.010))
+        
+        # 2: Free-space path loss using ITU standard
+        # FSPL(dB) = 32.45 + 20*log10(distance_km) + 20*log10(frequency_MHz)
+        path_loss = 32.45 + 20 * math.log10(effective_distance_km) + 20 * math.log10(FREQUENCY_MHZ)
+        
+        # Add near-field component
+        path_loss += near_field_attenuation
+        
+        # 3: Weather attenuation (rain, fog etc) in dB/km multiplied by distance
         # Higher SF slightly more resilient to weather effects (longer symbol time)
         weather_base = WEATHER_ATTEN_DB_PER_KM.get(weather, 0.2)
         sf_weather_reduction = (sf - 7) * 0.01  # Small reduction for higher SF
         weather_factor = max(0.1, weather_base * (1.0 - sf_weather_reduction))
-        path_loss += weather_factor * distance_km
+        path_loss += weather_factor * effective_distance_km
         
-        # 3: AQI-based atmospheric degradation (non-linear effect)
+        # 4: AQI-based atmospheric degradation (non-linear effect)
         if aqi > 50:
             # Non-linear scaling - higher AQI has increasingly worse effect
             # Higher SF slightly more resilient to particulate interference
             aqi_factor = ((aqi - 50) / 50.0) ** 1.5
             sf_aqi_reduction = (sf - 7) * 0.02  # Small reduction for higher SF
-            path_loss += aqi_factor * 0.5 * distance_km * (1.0 - sf_aqi_reduction)
+            path_loss += aqi_factor * 0.5 * effective_distance_km * (1.0 - sf_aqi_reduction)
             
-        # 4: Add obstacle penetration loss from empirical dB table
+        # 5: Add obstacle penetration loss from empirical dB table
         # Higher SF has better obstacle penetration
         obstacle_loss = OBSTACLE_LOSS_DB.get(obstacle, 0.0)
         if obstacle != "open":
@@ -265,24 +284,24 @@ class SimulatorServer:
         else:
             path_loss += obstacle_loss
         
-        # 5: Earth curvature effect - significant beyond ~8km
+        # 6: Earth curvature effect - significant beyond ~8km
         # Affects all SFs similarly (physics of radio horizon)
-        if distance_km > 8.0:
+        if effective_distance_km > 8.0:
             # Stronger effect as we approach radio horizon
-            curvature_loss = ((distance_km - 8.0) / 17.0) ** 2 * 10.0
+            curvature_loss = ((effective_distance_km - 8.0) / 17.0) ** 2 * 10.0
             path_loss += curvature_loss
             
-        # 6: Terrain roughness approximation - varies with distance
+        # 7: Terrain roughness approximation - varies with distance
         # Higher SF slightly better in rough terrain
-        if distance_km > 1.0:
+        if effective_distance_km > 1.0:
             # Random but deterministic terrain effect
-            roughness_seed = hash(f"{distance_km:.1f}") % 1000 / 1000.0
-            base_roughness = roughness_seed * 3.0 * math.log(distance_km + 1)
+            roughness_seed = hash(f"{effective_distance_km:.1f}") % 1000 / 1000.0
+            base_roughness = roughness_seed * 3.0 * math.log(effective_distance_km + 1)
             sf_roughness_reduction = (sf - 7) * 0.03  # Small reduction for higher SF
             roughness_loss = base_roughness * (1.0 - sf_roughness_reduction)
             path_loss += roughness_loss
             
-        # 7: Multipath fading - affects signal more in complex environments
+        # 8: Multipath fading - affects signal more in complex environments
         # Higher SF has better resistance to multipath effects
         if obstacle != "open":
             # More pronounced in non-open environments
@@ -295,11 +314,12 @@ class SimulatorServer:
         multipath_factor = base_multipath * (1.0 - ((sf - 7) * 0.05))  # SF7: full effect, SF12: 75% effect
         
         # Random but deterministic multipath component
-        multipath_seed = hash(f"{from_id}{to_id}{distance_km:.2f}") % 1000 / 1000.0
+        multipath_seed = hash(f"{from_id}{to_id}{effective_distance_km:.2f}") % 1000 / 1000.0
         multipath_loss = multipath_factor * multipath_seed * 5.0
         path_loss += multipath_loss
-            
-        return path_loss
+        
+        # 9: Apply a constant minimum loss to ensure RSSI is realistic even at zero distance
+        return max(path_loss, min_path_loss)
 
     def compute_snr(self, rssi, sf, distance_km, weather, obstacle):
         """
@@ -387,7 +407,7 @@ class SimulatorServer:
         
         # 11. Final SNR is constrained to realistic range
         # but can still fall below minimum (causing packet loss)
-        return realistic_snr
+        return realistic_snr + random.uniform(-0.1, 0.1)
 
     def compute_airtime_ms(self, payload_len, sf=7, bw=125000, cr=1, preamble_len=8, header_enabled=True, low_datarate_optimize=None):
         """
@@ -536,7 +556,7 @@ class SimulatorServer:
         
         return total_delay_ms
     
-    def get_drop_reason(self, now, rssi, sf, nid, snr, min_snr, from_id):
+    def get_drop_reason(self, now, rssi, sf, nid, snr, min_snr, from_id, distance_km):
         """
         Determine specific reason for packet drop, if any.
         
@@ -565,7 +585,7 @@ class SimulatorServer:
             return "SNR_TOO_LOW"
             
         # 4. Check if general packet drop conditions apply (statistical)
-        if self.should_drop(from_id, nid, rssi, snr, sf):
+        if self.should_drop(from_id, nid, rssi, snr, sf, distance_km):
             # Determine more specific reason for the drop
             if self.active_transmissions > self.max_inflight_packets * 0.8:
                 return "NETWORK_CONGESTION"
@@ -684,18 +704,29 @@ class SimulatorServer:
                 distance_km = math.dist(from_loc, to_loc)
                 
                 # Calculate signal parameters
-                path_loss = self.compute_environmental_loss(from_id, to_id, distance_km, aqi, weather, obstacle)
-                rssi = tx_dbm - path_loss
+                path_loss = self.compute_environmental_loss(from_id, nid, distance_km, aqi, weather, obstacle, sf)
+                
+                # Apply realistic RSSI limits - even with zero path loss, should never exceed -35dBm
+                # This accounts for receiver front-end limitations and antenna inefficiencies
+                max_realistic_rssi = -35  # dBm - realistic maximum for LoRa
+                min_realistic_rssi = -150  # dBm - physical lower bound
+                
+                # Calculate RSSI with realistic bounds
+                rssi = min(max_realistic_rssi, max(min_realistic_rssi, tx_dbm - path_loss)) + random.uniform(-1.5, 1.5)
+                
+                # Calculate SNR based on the realistic RSSI
                 snr = self.compute_snr(rssi, sf, distance_km, weather, obstacle)
+                
+                # Calculate transmission delay
                 delay_ms = self.calculate_transmission_delay(snr, sf, weather, distance_km, obstacle, payload_len)
                 
                 now = time.time()
-                drop_reason = self.get_drop_reason(now, rssi, sf, nid, snr, min_snr, from_id)
+                drop_reason = self.get_drop_reason(now, rssi, sf, nid, snr, min_snr, from_id, distance_km)
                 
                 if drop_reason:
                     logger.warning(f"[DROP] {drop_reason}: Packet from {from_id} to {nid} | "
-                                 f"RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | "
-                                 f"SF: {sf} | Distance: {distance_km:.2f} km | Delay: {delay_ms} ms")
+                                f"RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | "
+                                f"SF: {sf} | Distance: {distance_km:.2f} km | Delay: {delay_ms} ms")
                     continue
 
                 # Mark receiver as busy for the duration of reception
@@ -712,8 +743,8 @@ class SimulatorServer:
                 try:
                     client_sock.sendall((json.dumps(msg) + '\n').encode())
                     logger.info(f"[✓] Delivered packet from {from_id} to {nid} | "
-                              f"RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | "
-                              f"SF: {sf} | Distance: {distance_km:.2f} km | Delay: {delay_ms:.2f} ms")
+                            f"RSSI: {rssi:.2f} dBm | SNR: {snr:.2f} dB | "
+                            f"SF: {sf} | Distance: {distance_km:.2f} km | Delay: {delay_ms:.2f} ms")
                 except Exception as e:
                     logger.warning(f"[x] Send failed to Node {nid}: {e}")
         finally:

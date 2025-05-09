@@ -28,27 +28,27 @@ MESSAGE = "Hello"
 TX_POWER = 23  # dBm
 # ==========================================================================
 
-def run_tx(radio, interval=5, broadcast=True):
+def run_tx(rfm9x, interval=5, broadcast=True):
     """
     Transmit MESSAGE at given interval. Optionally broadcast to all.
     """
-    print(f"[TX-{radio.node_id}] Starting transmission loop every {interval}s...")
+    print(f"[TX-{rfm9x.node_id}] Starting transmission loop every {interval}s...")
     while True:
-        print(f"[TX-{radio.node_id}] Sending: '{MESSAGE}'")
-        radio.send(MESSAGE.encode('utf-8'), destination=0xFF if broadcast else radio.destination)
+        print(f"[TX-{rfm9x.node_id}] Sending: '{MESSAGE}'")
+        rfm9x.send(MESSAGE.encode('utf-8'), destination=0xFF if broadcast else rfm9x.destination)
         time.sleep(interval)
 
-def run_rx(radio):
+def run_rx(rfm9x):
     """
     Continuously listen for messages.
     """
-    print(f"[RX-{radio.node_id}] Listening for messages...")
+    print(f"[RX-{rfm9x.node_id}] Listening for messages...")
     while True:
-        msg = radio.receive(timeout=1.0, with_header=True)
+        msg = rfm9x.receive(timeout=1.0, with_header=True)
         if msg:
             header = msg[:4]
             payload = msg[4:].decode()
-            print(f"[RX-{radio.node_id}] Received: '{payload}' | From: {header[1]} | RSSI: {radio.last_rssi:.2f} | SNR: {radio.last_snr:.2f}")
+            print(f"[RX-{rfm9x.node_id}] Received: '{payload}' | From: {header[1]} | RSSI: {rfm9x.last_rssi:.2f} | SNR: {rfm9x.last_snr:.2f}")
 
 def main():
     parser = argparse.ArgumentParser(description="Simulated RFM9x Node")
@@ -75,17 +75,19 @@ def main():
     x, y = map(float, args.location.split(","))
     location = (x, y)
 
-    # Create simulated radio
-    radio_feq_mhz = args.frequency
     try:
-        radio = SimulatedRFM9x(node_id=args.id, location=location, frequency=radio_feq_mhz)
-        radio.tx_power = TX_POWER
-        radio.destination = args.destination if args.destination else 0XFF
+        rfm9x = SimulatedRFM9x()
+        rfm9x.tx_power = TX_POWER
+        rfm9x.node_id = args.id
+        rfm9x.destination = args.destination if args.destination else 0XFF
+        rfm9x.location = location
+        rfm9x.frequency = args.frequency
+        rfm9x.initialize()
 
         if args.mode == "tx":
-            run_tx(radio, interval=args.interval, broadcast=args.broadcast)
+            run_tx(rfm9x, interval=args.interval, broadcast=args.broadcast)
         else:
-            run_rx(radio)
+            run_rx(rfm9x)
     except ConnectionRefusedError:
         print("[X ERROR] Please run simulated_server.py file first.")
 
