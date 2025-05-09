@@ -40,7 +40,7 @@ class SimulatedRFM9x:
         self.node = 1
         self.location = (0,0)
         self.frequency = frequency
-        self.destination = None
+        self.destination = 0XFF
         self.server = (server_ip, server_port)
 
         # Create and connect TCP socket to simulation server

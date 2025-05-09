@@ -78,7 +78,7 @@ def main():
     try:
         rfm9x = SimulatedRFM9x()
         rfm9x.tx_power = TX_POWER
-        rfm9x.node_id = args.id
+        rfm9x.node = args.id
         rfm9x.destination = args.destination if args.destination else 0XFF
         rfm9x.location = location
         rfm9x.frequency = args.frequency
