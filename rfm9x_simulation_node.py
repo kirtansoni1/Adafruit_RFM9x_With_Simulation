@@ -32,9 +32,9 @@ def run_tx(rfm9x, interval=5, broadcast=True):
     """
     Transmit MESSAGE at given interval. Optionally broadcast to all.
     """
-    print(f"[TX-{rfm9x.node_id}] Starting transmission loop every {interval}s...")
+    print(f"[TX-{rfm9x.node}] Starting transmission loop every {interval}s...")
     while True:
-        print(f"[TX-{rfm9x.node_id}] Sending: '{MESSAGE}'")
+        print(f"[TX-{rfm9x.node}] Sending: '{MESSAGE}'")
         rfm9x.send(MESSAGE.encode('utf-8'), destination=0xFF if broadcast else rfm9x.destination)
         time.sleep(interval)
 
@@ -42,13 +42,13 @@ def run_rx(rfm9x):
     """
     Continuously listen for messages.
     """
-    print(f"[RX-{rfm9x.node_id}] Listening for messages...")
+    print(f"[RX-{rfm9x.node}] Listening for messages...")
     while True:
         msg = rfm9x.receive(timeout=1.0, with_header=True)
         if msg:
             header = msg[:4]
             payload = msg[4:].decode()
-            print(f"[RX-{rfm9x.node_id}] Received: '{payload}' | From: {header[1]} | RSSI: {rfm9x.last_rssi:.2f} | SNR: {rfm9x.last_snr:.2f}")
+            print(f"[RX-{rfm9x.node}] Received: '{payload}' | From: {header[1]} | RSSI: {rfm9x.last_rssi:.2f} | SNR: {rfm9x.last_snr:.2f}")
 
 def main():
     parser = argparse.ArgumentParser(description="Simulated RFM9x Node")
