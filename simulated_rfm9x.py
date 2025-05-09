@@ -26,7 +26,7 @@ import random
 
 class SimulatedRFM9x:
 
-    def __init__(self, server_ip='localhost', server_port=5000):
+    def __init__(self, server_ip='localhost', server_port=5000, frequency=915.0):
         """
         Initialize the simulated RFM9x module.
 
@@ -37,9 +37,9 @@ class SimulatedRFM9x:
         - location (tuple): (x, y) location in km
         - frequency (int): Frequency at which the node is sending data.
         """
-        self.node_id = 1
+        self.node = 1
         self.location = (0,0)
-        self.frequency = 915.0
+        self.frequency = frequency
         self.destination = None
         self.server = (server_ip, server_port)
 
@@ -71,7 +71,7 @@ class SimulatedRFM9x:
         """Must be called after setting node, location, and frequency."""
         msg = {
             "type": "register",
-            "node_id": self.node_id,
+            "node_id": self.node,
             "location": self.location,
             "frequency": self.frequency
         }
@@ -86,7 +86,7 @@ class SimulatedRFM9x:
         - data (bytes): The payload to transmit.
         - keep_listening (bool): If True, receive mode is re-enabled immediately after sending.
         - destination (int): Destination address (default: 0xFF broadcast).
-        - node (int): Source address override (default: self.node_id).
+        - node (int): Source address override (default: self.node).
         - identifier (int): Sequence number for reliable datagrams.
         - flags (int): Bit flags (ACK, retry, etc.).
         """
@@ -96,14 +96,14 @@ class SimulatedRFM9x:
         # Build metadata for the RadioHead-style header
         header = {
             "destination": destination if destination is not None else self.destination,
-            "node": node if node is not None else self.node_id,
+            "node": node if node is not None else self.node,
             "identifier": identifier if identifier is not None else self.identifier,
             "flags": flags if flags is not None else self.flags
         }
 
         msg = {
             "type": "tx",
-            "from": self.node_id,
+            "from": self.node,
             "data": data,
             "meta": {
                 **header,
@@ -180,11 +180,11 @@ class SimulatedRFM9x:
         """
         ack_msg = {
             "type": "tx",
-            "from": self.node_id,
+            "from": self.node,
             "data": "!",
             "meta": {
                 "destination": to_node,
-                "node": self.node_id,
+                "node": self.node,
                 "identifier": identifier,
                 "flags": original_flags | 0x80,
                 "tx_power": self.tx_power,
