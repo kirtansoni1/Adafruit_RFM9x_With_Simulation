@@ -23,6 +23,9 @@ spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
 # Initialze RFM radio
 rfm9x = adafruit_rfm9x.RFM9x(spi, CS, RESET, RADIO_FREQ_MHZ)
 
+# Set the sync word to a custom value
+rfm9x.set_sync_word(0x34)
+
 # Wait to receive packets.
 print("Waiting for packets...")
 # initialize flag and timer

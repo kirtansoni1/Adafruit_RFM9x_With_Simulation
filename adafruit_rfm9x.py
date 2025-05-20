@@ -82,6 +82,8 @@ _RH_RF95_REG_24_HOP_PERIOD = const(0x24)
 _RH_RF95_REG_25_FIFO_RX_BYTE_ADDR = const(0x25)
 _RH_RF95_REG_26_MODEM_CONFIG3 = const(0x26)
 
+_RH_RF95_REG_39_SYNC_WORD = const(0x39)
+
 _RH_RF95_REG_40_DIO_MAPPING1 = const(0x40)
 _RH_RF95_REG_41_DIO_MAPPING2 = const(0x41)
 _RH_RF95_REG_42_VERSION = const(0x42)
@@ -680,6 +682,27 @@ class RFM9x:
     def crc_error(self) -> bool:
         """crc status"""
         return (self._read_u8(_RH_RF95_REG_12_IRQ_FLAGS) & 0x20) >> 5
+
+    def set_sync_word(self, sync_word: int) -> None:
+        """Set the sync word for the RFM9x radio.
+
+        Parameters:
+        - sync_word (int): The sync word to set (0x00 to 0xFF).
+
+        Raises:
+        - ValueError: If the sync word is outside the valid range (0x00 to 0xFF).
+        """
+        if not (0x00 <= sync_word <= 0xFF):
+            raise ValueError("Sync word must be between 0x00 and 0xFF")
+
+        # Check if the sync word is set to the default value (0x12)
+        if sync_word == 0x12:
+            return
+
+        # Custom validation logic (if any) can be added here
+
+        # Set the sync word
+        self._write_u8(_RH_RF95_REG_39_SYNC_WORD, sync_word)
 
     # pylint: disable=too-many-branches
     def send(
